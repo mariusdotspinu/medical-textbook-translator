@@ -1,0 +1,23 @@
+# Host port 5433, not 5432: a stray 5432 is very often already taken by another
+# project's database, and the resulting failure ("database medlearn does not exist")
+# points at the wrong thing entirely.
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: medlearn-db
+    environment:
+      POSTGRES_DB: medlearn
+      POSTGRES_USER: medlearn
+      POSTGRES_PASSWORD: medlearn
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medlearn -d medlearn"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:

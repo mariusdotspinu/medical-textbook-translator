@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Medical Textbook Translator</title>
+<style>
+  :root {
+    --bg:#f6f7f9; --card:#fff; --ink:#15181d; --muted:#667085; --line:#e4e7ec;
+    --accent:#2b6cb0; --accent-ink:#fff; --ok:#1a7f4b; --warn:#b54708; --err:#b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171c; --card:#1b1f26; --ink:#e8eaed; --muted:#98a2b3; --line:#2a2f38;
+            --accent:#5b9bd5; --accent-ink:#0b0d10; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.55 -apple-system,
+         BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .wrap { max-width:1060px; margin:0 auto; padding:28px 20px 60px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 24px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          padding:18px; margin-bottom:16px; }
+  .card h2 { font-size:14px; text-transform:uppercase; letter-spacing:.05em;
+             color:var(--muted); margin:0 0 14px; }
+  button { background:var(--accent); color:var(--accent-ink); border:0; border-radius:7px;
+           padding:9px 15px; font-size:13px; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  button.ghost { background:transparent; color:var(--accent); border:1px solid var(--line); }
+  input[type=file] { font-size:13px; }
+  select, input[type=number], input[type=text] { background:var(--card); color:var(--ink);
+           border:1px solid var(--line); border-radius:6px; padding:7px 9px; font-size:13px; }
+  label.opt { display:inline-flex; align-items:center; gap:6px; margin-right:16px;
+              font-size:13px; color:var(--ink); }
+  .row { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+  .bar { height:7px; background:var(--line); border-radius:4px; overflow:hidden; margin-top:10px; }
+  .bar > i { display:block; height:100%; width:0; background:var(--accent);
+             transition:width .25s ease; }
+  .bar.indet > i { width:35%; animation:slide 1.1s infinite ease-in-out; }
+  @keyframes slide { 0%{margin-left:-35%} 100%{margin-left:100%} }
+  .status { font-size:12.5px; color:var(--muted); margin-top:8px; min-height:18px; }
+  .status.err { color:var(--err); }
+  .status.ok { color:var(--ok); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; font-weight:600; color:var(--muted); font-size:11.5px;
+       text-transform:uppercase; letter-spacing:.04em; padding:0 8px 7px; }
+  td { padding:7px 8px; border-top:1px solid var(--line); vertical-align:top; }
+  tr.sel { background:color-mix(in srgb, var(--accent) 10%, transparent); }
+  .pill { display:inline-block; font-size:11px; padding:2px 7px; border-radius:20px;
+          border:1px solid var(--line); color:var(--muted); }
+  .pill.ready { color:var(--ok); border-color:currentColor; }
+  .pill.failed { color:var(--err); border-color:currentColor; }
+  .chapters { max-height:340px; overflow:auto; border:1px solid var(--line); border-radius:8px; }
+  .muted { color:var(--muted); }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+  .findings { margin-top:12px; font-size:12.5px; }
+  .findings summary { cursor:pointer; color:var(--warn); }
+  .findings ul { margin:6px 0 0; padding-left:18px; max-height:260px; overflow:auto; }
+  .findings li { margin-bottom:3px; }
+  .glossary { max-height:380px; overflow:auto; margin-top:10px; }
+  .glossary input[type=text] { width:100%; box-sizing:border-box; padding:4px 7px; }
+  .glossary td { vertical-align:middle; }
+  .pill.pinned { color:var(--accent); border-color:currentColor; }
+  a { color:var(--accent); }
+  .hint { font-size:12.5px; color:var(--muted); margin-top:10px; }
+  .empty { color:var(--muted); padding:16px; text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Medical Textbook Translator</h1>
+  <p class="sub">Upload a textbook, pick chapters, translate into your language.</p>
+
+  <div class="card">
+    <h2>1 &middot; Upload</h2>
+    <div class="row">
+      <input type="file" id="file" accept="application/pdf"/>
+      <button id="upload">Upload</button>
+    </div>
+    <div class="bar" id="upBar"><i></i></div>
+    <div class="status" id="upStatus"></div>
+    <div class="hint">Large textbooks are fine &mdash; the file streams to disk and extraction
+      runs as a background job.</div>
+  </div>
+
+  <div class="card">
+    <h2>2 &middot; Library</h2>
+    <table>
+      <thead><tr><th>Title</th><th>Pages</th><th>Chapters from</th><th>Status</th><th></th></tr></thead>
+      <tbody id="books"></tbody>
+    </table>
+    <div class="empty" id="booksEmpty">Nothing uploaded yet.</div>
+  </div>
+
+  <div class="card" id="chapterCard" style="display:none">
+    <h2>3 &middot; Chapters</h2>
+    <div class="row" style="margin-bottom:10px">
+      <button class="ghost" id="selAll">Select all</button>
+      <button class="ghost" id="selNone">Clear</button>
+      <span class="muted" id="selCount">0 selected</span>
+    </div>
+    <div class="chapters">
+      <table><tbody id="chapters"></tbody></table>
+    </div>
+  </div>
+
+  <div class="card" id="runCard" style="display:none">
+    <h2>4 &middot; Translate</h2>
+    <div class="row">
+      <label class="opt">Language
+        <select id="lang">
+          <option value="ro">Romanian</option>
+          <option value="fr">French</option>
+          <option value="de">German</option>
+          <option value="es">Spanish</option>
+          <option value="it">Italian</option>
+          <option value="ru">Russian</option>
+          <option value="el">Greek</option>
+          <option value="zh">Chinese</option>
+          <option value="ja">Japanese</option>
+          <option value="ko">Korean</option>
+        </select>
+      </label>
+      <label class="opt">Layout
+        <select id="mode">
+          <option value="OVERLAY">Keep original layout</option>
+          <option value="REFLOW">Clean reflow</option>
+        </select>
+      </label>
+      <label class="opt"><input type="checkbox" id="guide"/> Study guide</label>
+      <label class="opt"><input type="checkbox" id="dry" checked/> Dry run (free)</label>
+      <button id="run">Translate</button>
+    </div>
+    <div class="bar" id="runBar"><i></i></div>
+    <div class="status" id="runStatus"></div>
+    <div class="hint" id="dryHint">Dry run exercises extraction, fitting and rendering with a
+      translator that calls nothing &mdash; use it to check layout fidelity before spending
+      anything.</div>
+    <div id="artifacts" style="margin-top:12px"></div>
+    <div id="findings" class="findings"></div>
+  </div>
+
+  <div class="card" id="glossaryCard" style="display:none">
+    <h2>5 &middot; Glossary <span class="muted" id="glossaryLang" style="font-weight:normal"></span></h2>
+    <div class="hint">Terms that must be translated the same way throughout the book. Live
+      translations add terms automatically; correcting a rendering pins it, so it is never
+      changed automatically, and re-translating updates only the passages that use it.</div>
+    <div class="row" style="margin-top:10px">
+      <input type="text" id="newSource" placeholder="Source term" style="width:200px"/>
+      <input type="text" id="newTarget" placeholder="Rendering" style="width:200px"/>
+      <button class="ghost" id="addTerm">Add</button>
+      <span class="status" id="glossaryStatus" style="margin:0 0 0 8px"></span>
+    </div>
+    <div class="glossary">
+      <table><tbody id="glossary"></tbody></table>
+      <div class="muted" id="glossaryEmpty" style="display:none">No terms yet for this language.
+        Run a live translation to extract them, or add one above.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const api = p => fetch(p).then(r => r.ok ? r.json() : Promise.reject(r));
+
+let books = [], selectedBook = null, chapters = [], selected = new Set();
+
+function setBar(bar, percent) {
+  // -1 means "running, total unknown" - an indeterminate bar is honest, 0% is not.
+  bar.classList.toggle('indet', percent < 0);
+  bar.firstElementChild.style.width = percent < 0 ? '' : percent + '%';
+}
+function say(el, text, kind) { el.textContent = text; el.className = 'status' + (kind ? ' ' + kind : ''); }
+
+async function loadBooks() {
+  books = await api('/api/v1/textbooks');
+  $('booksEmpty').style.display = books.length ? 'none' : 'block';
+  $('books').innerHTML = books.map(b => `
+    <tr data-id="${b.id}" class="${selectedBook === b.id ? 'sel' : ''}">
+      <td><strong>${esc(b.title)}</strong>${b.authors ? '<div class="muted">' + esc(b.authors) + '</div>' : ''}</td>
+      <td>${b.pageCount}</td>
+      <td class="muted">${b.chapterSource}</td>
+      <td><span class="pill ${b.status === 'READY' ? 'ready' : b.status === 'FAILED' ? 'failed' : ''}">${b.status}</span></td>
+      <td style="text-align:right">
+        <button class="ghost pick" ${b.status !== 'READY' ? 'disabled' : ''}>Open</button>
+        <button class="ghost del">Delete</button>
+      </td>
+    </tr>`).join('');
+
+  $('books').querySelectorAll('tr').forEach(tr => {
+    const id = tr.dataset.id;
+    tr.querySelector('.pick')?.addEventListener('click', () => openBook(id));
+    tr.querySelector('.del')?.addEventListener('click', async () => {
+      if (!confirm('Delete this textbook and everything derived from it?')) return;
+      const res = await fetch('/api/v1/textbooks/' + id, { method: 'DELETE' });
+      if (!res.ok) {
+        // 409 while a job for the book is still running: say why instead of silently doing nothing.
+        const body = await res.json().catch(() => ({}));
+        alert(body.error || ('Could not delete (' + res.status + ')'));
+        return;
+      }
+      if (selectedBook === id) { selectedBook = null; $('chapterCard').style.display = 'none'; $('runCard').style.display = 'none'; $('glossaryCard').style.display = 'none'; }
+      loadBooks();
+    });
+  });
+}
+
+async function openBook(id) {
+  selectedBook = id;
+  selected.clear();
+  chapters = flatten(await api(`/api/v1/textbooks/${id}/chapters`));
+  $('chapters').innerHTML = chapters.map(c => `
+    <tr data-id="${c.id}">
+      <td style="width:28px"><input type="checkbox" class="ch"/></td>
+      <td style="padding-left:${8 + c.level * 18}px">${esc(c.title)}</td>
+      <td class="muted mono" style="text-align:right;white-space:nowrap">p${c.startPage}&ndash;${c.endPage}</td>
+    </tr>`).join('');
+  $('chapters').querySelectorAll('tr').forEach(tr => {
+    tr.querySelector('.ch').addEventListener('change', e => {
+      e.target.checked ? selected.add(tr.dataset.id) : selected.delete(tr.dataset.id);
+      tr.classList.toggle('sel', e.target.checked);
+      updateCount();
+    });
+  });
+  updateCount();
+  $('chapterCard').style.display = '';
+  $('runCard').style.display = '';
+  $('glossaryCard').style.display = '';
+  loadGlossary();
+  loadBooks();
+}
+
+function flatten(nodes, out = []) {
+  for (const n of nodes) { out.push(n); if (n.children?.length) flatten(n.children, out); }
+  return out;
+}
+function updateCount() { $('selCount').textContent = selected.size + ' selected'; }
+function esc(s) { return (s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+$('selAll').onclick = () => { $('chapters').querySelectorAll('.ch').forEach(c => { c.checked = true; c.dispatchEvent(new Event('change')); }); };
+$('selNone').onclick = () => { $('chapters').querySelectorAll('.ch').forEach(c => { c.checked = false; c.dispatchEvent(new Event('change')); }); };
+
+// --- upload, with real progress from the XHR rather than a fake spinner
+$('upload').onclick = () => {
+  const file = $('file').files[0];
+  if (!file) { say($('upStatus'), 'Choose a PDF first.', 'err'); return; }
+
+  const body = new FormData();
+  body.append('file', file);
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/v1/textbooks');
+  xhr.upload.onprogress = e => {
+    if (e.lengthComputable) setBar($('upBar'), Math.round(e.loaded / e.total * 100));
+    say($('upStatus'), 'Uploading ' + (file.size / 1048576).toFixed(1) + ' MB...');
+  };
+  xhr.onload = () => {
+    let res = {};
+    try { res = JSON.parse(xhr.responseText); } catch { /* keep the status text below */ }
+    if (xhr.status === 202) { say($('upStatus'), 'Extracting...'); watch(res.jobId, $('upBar'), $('upStatus'), loadBooks); }
+    else if (xhr.status === 200) { say($('upStatus'), res.message || 'Already ingested.', 'ok'); setBar($('upBar'), 100); loadBooks(); }
+    else { say($('upStatus'), res.error || ('Upload failed (' + xhr.status + ')'), 'err'); setBar($('upBar'), 0); }
+  };
+  xhr.onerror = () => say($('upStatus'), 'Upload failed.', 'err');
+  $('upBar').classList.remove('indet');
+  xhr.send(body);
+};
+
+// --- live job progress over SSE, falling back to polling if the stream drops
+function watch(jobId, bar, status, done) {
+  const src = new EventSource(`/api/v1/jobs/${jobId}/events`);
+  src.addEventListener('progress', e => {
+    const j = JSON.parse(e.data);
+    setBar(bar, j.percent);
+    if (j.state === 'RUNNING') say(status, `${j.phase} — ${j.doneUnits}/${j.totalUnits}`);
+    if (j.state === 'SUCCEEDED') { say(status, 'Done.', 'ok'); setBar(bar, 100); src.close(); done?.(jobId); }
+    if (j.state === 'FAILED') { say(status, j.error || 'Failed.', 'err'); bar.classList.remove('indet'); src.close(); }
+    if (j.state === 'CANCELLED') { say(status, 'Cancelled.'); src.close(); }
+  });
+  src.onerror = () => { src.close(); pollUntilDone(jobId, bar, status, done); };
+}
+
+async function pollUntilDone(jobId, bar, status, done) {
+  for (;;) {
+    await new Promise(r => setTimeout(r, 1200));
+    let j;
+    try { j = await api('/api/v1/jobs/' + jobId); } catch { return; }
+    setBar(bar, j.percent);
+    say(status, `${j.phase} — ${j.doneUnits}/${j.totalUnits}`);
+    if (j.state === 'SUCCEEDED') { say(status, 'Done.', 'ok'); done?.(jobId); return; }
+    if (j.state === 'FAILED') { say(status, j.error || 'Failed.', 'err'); return; }
+    if (j.state === 'CANCELLED') { say(status, 'Cancelled.'); return; }
+  }
+}
+
+$('dry').onchange = () => {
+  $('dryHint').textContent = $('dry').checked
+    ? 'Dry run exercises extraction, fitting and rendering with a translator that calls nothing — use it to check layout fidelity before spending anything.'
+    : 'Live translation will call the API and cost money (roughly $1 per 40-page chapter).';
+};
+
+$('run').onclick = async () => {
+  if (!selectedBook || selected.size === 0) { say($('runStatus'), 'Select at least one chapter.', 'err'); return; }
+  $('artifacts').innerHTML = '';
+  $('findings').innerHTML = '';
+  setBar($('runBar'), -1);
+  say($('runStatus'), 'Starting...');
+
+  const res = await fetch(`/api/v1/textbooks/${selectedBook}/translations`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chapterIds: [...selected],
+      targetLanguage: $('lang').value,
+      renderMode: $('mode').value,
+      includeStudyGuide: $('guide').checked,
+      dryRun: $('dry').checked
+    })
+  });
+  const body = await res.json();
+  if (!res.ok) { say($('runStatus'), body.error || 'Could not start.', 'err'); setBar($('runBar'), 0); return; }
+  watch(body.jobId, $('runBar'), $('runStatus'), showArtifacts);
+};
+
+async function showArtifacts(jobId) {
+  showFindings(jobId);
+  loadGlossary();       // a live run may have added terms
+  const list = await api(`/api/v1/jobs/${jobId}/artifacts`);
+  if (!list.length) { $('artifacts').innerHTML = '<span class="muted">No files produced.</span>'; return; }
+  $('artifacts').innerHTML = list.map(a => `
+    <div style="margin-bottom:6px">
+      <a href="${a.downloadUrl}">${esc(a.filename)}</a>
+      <span class="muted">— ${a.kind.replace('_', ' ').toLowerCase()}${a.pageCount ? ', ' + a.pageCount + ' pages' : ''}, ${(a.byteSize / 1024).toFixed(0)} KB</span>
+    </div>`).join('');
+}
+
+// Passages the quality checks flagged - a changed dose, a refused or missing paragraph, text
+// that did not fit. The PDF is still delivered; this is the list to check it against.
+async function showFindings(jobId) {
+  const list = await api(`/api/v1/jobs/${jobId}/findings`);
+  if (!list.length) { $('findings').innerHTML = '<span class="muted">No passages flagged for review.</span>'; return; }
+  $('findings').innerHTML = `
+    <details ${list.length <= 10 ? 'open' : ''}>
+      <summary>${list.length} passage${list.length === 1 ? '' : 's'} to review</summary>
+      <ul>${list.map(f => `
+        <li><span class="mono">p.${f.pageNo || '?'}</span> ${esc(f.message)}
+          <span class="muted mono">${esc(f.kind.toLowerCase().replaceAll('_', ' '))}</span></li>`).join('')}
+      </ul>
+    </details>`;
+}
+
+// --- glossary for the open book, in the language selected for translation
+const glossaryUrl = () => `/api/v1/textbooks/${selectedBook}/glossary/${$('lang').value}`;
+
+async function loadGlossary() {
+  if (!selectedBook) return;
+  $('glossaryLang').textContent = '— ' + $('lang').selectedOptions[0].textContent;
+  const terms = await api(glossaryUrl());
+  $('glossaryEmpty').style.display = terms.length ? 'none' : 'block';
+  $('glossary').innerHTML = terms.map(t => `
+    <tr data-id="${t.id}" data-source="${esc(t.sourceTerm)}">
+      <td style="width:34%">${esc(t.sourceTerm)}</td>
+      <td style="width:38%"><input type="text" class="target" value="${esc(t.targetTerm)}"/></td>
+      <td class="muted mono">${t.kind.toLowerCase()}</td>
+      <td class="muted mono" title="occurrences in scanned pages">${t.occurrences}&times;</td>
+      <td>${t.pinned ? '<span class="pill pinned">pinned</span>' : ''}</td>
+      <td style="text-align:right"><button class="ghost del">&times;</button></td>
+    </tr>`).join('');
+
+  $('glossary').querySelectorAll('tr').forEach(tr => {
+    const input = tr.querySelector('.target');
+    const original = input.value;
+    input.addEventListener('change', async () => {
+      if (!input.value.trim() || input.value === original) { input.value = original; return; }
+      await saveTerm(tr.dataset.source, input.value.trim());
+    });
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); });
+    tr.querySelector('.del').addEventListener('click', async () => {
+      if (!confirm(`Remove "${tr.dataset.source}" from the glossary?`)) return;
+      await fetch(glossaryUrl() + '/' + tr.dataset.id, { method: 'DELETE' });
+      loadGlossary();
+    });
+  });
+}
+
+async function saveTerm(sourceTerm, targetTerm) {
+  const res = await fetch(glossaryUrl(), {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceTerm, targetTerm })
+  });
+  if (!res.ok) { say($('glossaryStatus'), 'Could not save (' + res.status + ')', 'err'); return; }
+  say($('glossaryStatus'), `Saved and pinned "${sourceTerm}". Re-translate to apply it.`, 'ok');
+  loadGlossary();
+}
+
+$('addTerm').onclick = async () => {
+  const source = $('newSource').value.trim(), target = $('newTarget').value.trim();
+  if (!source || !target) { say($('glossaryStatus'), 'Enter both a term and its rendering.', 'err'); return; }
+  await saveTerm(source, target);
+  $('newSource').value = ''; $('newTarget').value = '';
+};
+$('lang').addEventListener('change', loadGlossary);
+
+loadBooks();
+</script>
+</body>
+</html>
